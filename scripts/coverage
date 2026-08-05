@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export PATH="$HOME/.cargo/bin:/opt/homebrew/opt/rustup/bin:$PATH"
+
+cleanup() {
+  pkill -f 'bun tests/server.ts' >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+cd "$ROOT"
+mkdir -p coverage
+cleanup
+cargo llvm-cov clean --workspace
+cargo llvm-cov --workspace --exclude channel-rs-bench --lcov --output-path coverage/lcov.info
+
+missed_lines="$(awk -F'[:,]' '/^DA:/{ if ($3 == 0) missed += 1 } END { print missed + 0 }' coverage/lcov.info)"
+if [[ "$missed_lines" -ne 0 ]]; then
+  echo "coverage check failed: $missed_lines uncovered DA line(s) in coverage/lcov.info" >&2
+  exit 1
+fi
+
+echo "coverage check passed: 100% DA line coverage"

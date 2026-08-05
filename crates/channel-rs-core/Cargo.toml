@@ -1,0 +1,21 @@
+[package]
+name = "channel-rs-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+async-stream.workspace = true
+base64.workspace = true
+dashmap.workspace = true
+futures-core.workspace = true
+futures-util.workspace = true
+parking_lot.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha1.workspace = true
+simd-json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+url.workspace = true

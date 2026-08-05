@@ -1,0 +1,11 @@
+[package]
+name = "channel-rs-bench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+serde.workspace = true
+channel-rs = { path = "../channel-rs" }
+serde_json.workspace = true

@@ -1,0 +1,11 @@
+# Rust build artifacts
+/target/
+
+# Test and coverage output
+/coverage/
+
+# Benchmark output
+/benchmark.json
+
+# macOS
+.DS_Store

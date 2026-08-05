@@ -1,0 +1,14 @@
+#!/usr/bin/env bun
+
+import { resolve } from 'node:path'
+
+const root = resolve(import.meta.dir, '..', '..')
+const runtime = resolve(root, 'benchmark', 'runtime.ts')
+const proc = Bun.spawn([process.execPath, runtime, '--lang', 'rs', ...Bun.argv.slice(2)], {
+  cwd: process.cwd(),
+  stdin: 'inherit',
+  stdout: 'inherit',
+  stderr: 'inherit',
+})
+
+process.exit(await proc.exited)

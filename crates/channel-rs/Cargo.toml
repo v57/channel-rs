@@ -1,0 +1,20 @@
+[package]
+name = "channel-rs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+channel-rs-core = { path = "../channel-rs-core" }
+channel-rs-client = { path = "../channel-rs-client" }
+channel-rs-server = { path = "../channel-rs-server" }
+channel-rs-process = { path = "../channel-rs-process" }
+
+[dev-dependencies]
+async-stream.workspace = true
+futures-util.workspace = true
+parking_lot.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
