@@ -23,12 +23,19 @@ struct AuthRequest<'a> {
     name: &'a str,
 }
 
+/// The TS reference server on 127.0.0.1:2049. An already running one (e.g.
+/// a shared fixture) is reused and left alone; otherwise one is spawned and
+/// killed when the fixture drops.
 struct TsServerFixture {
-    child: Child,
+    child: Option<Child>,
 }
 
 impl TsServerFixture {
     fn start() -> Result<Self, Box<dyn std::error::Error>> {
+        let address: SocketAddr = "127.0.0.1:2049".parse()?;
+        if TcpStream::connect_timeout(&address, Duration::from_millis(200)).is_ok() {
+            return Ok(Self { child: None });
+        }
         let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("..")
             .join("..")
@@ -42,11 +49,10 @@ impl TsServerFixture {
             .stderr(Stdio::null())
             .spawn()?;
 
-        let address: SocketAddr = "127.0.0.1:2049".parse()?;
         let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline {
             if TcpStream::connect_timeout(&address, Duration::from_millis(50)).is_ok() {
-                return Ok(Self { child });
+                return Ok(Self { child: Some(child) });
             }
             if let Some(status) = child.try_wait()? {
                 return Err(format!("ts server exited early with status: {status}").into());
@@ -59,14 +65,16 @@ impl TsServerFixture {
     }
 
     fn stop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
     }
 }
 
 impl Drop for TsServerFixture {
     fn drop(&mut self) {
-        let _ = self.child.kill();
+        self.stop();
     }
 }
 

@@ -4,14 +4,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export PATH="$HOME/.cargo/bin:/opt/homebrew/opt/rustup/bin:$PATH"
 
-cleanup() {
-  pkill -f 'bun tests/server.ts' >/dev/null 2>&1 || true
-}
-trap cleanup EXIT
-
 cd "$ROOT"
 mkdir -p coverage
-cleanup
 cargo llvm-cov clean --workspace
 cargo llvm-cov --workspace --exclude channel-rs-bench --lcov --output-path coverage/lcov.info
 
