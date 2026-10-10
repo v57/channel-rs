@@ -91,6 +91,38 @@ fn process_send_success_and_error() -> Result<(), ChannelError> {
 }
 
 #[test]
+fn merge_keeps_post_other_and_stream_other_under_prefix() -> Result<(), ChannelError> {
+    let mut inner = Channel::<TestState>::new();
+    inner.post_other(
+        |path| path.starts_with("dyn/"),
+        |request: PostRequest<'_, TestState, (), ()>| Ok(Some(format!("post:{}", request.path))),
+    )?;
+    inner.stream_other(
+        |path| path == "feed",
+        |mut request: StreamRequest<'_, TestState, (), (), i64>| {
+            request.emitter.emit(1)?;
+            Ok(())
+        },
+    )?;
+
+    let mut outer = Channel::<TestState>::new();
+    outer.merge(&inner, "m")?;
+    let mut process = outer.process(TestState)?;
+    expect_ok_some(process.send::<String, _>("m/dyn/x", ())?, "post:m/dyn/x".to_string());
+    expect_remote_err(process.send::<String, _>("dyn/x", ())?, "api not found");
+    let mut values = process.values::<(), i64, ()>("m/feed", (), ())?;
+    assert!(matches!(values.next()?, StreamNext::Item(1)));
+    assert!(matches!(values.next()?, StreamNext::Done));
+
+    // Without a prefix the matchers are reused as-is
+    let mut flat = Channel::<TestState>::new();
+    flat.merge(&inner, "")?;
+    let mut process = flat.process(TestState)?;
+    expect_ok_some(process.send::<String, _>("dyn/x", ())?, "post:dyn/x".to_string());
+    Ok(())
+}
+
+#[test]
 fn process_subscription_cancel_and_stream_cancel() -> Result<(), ChannelError> {
     let events = Subscription::<String, String>::new();
     let event_count = Rc::new(Cell::new(0_usize));

@@ -547,6 +547,23 @@ impl<State: 'static> Channel<State> {
             binding.set_prefix(merged.clone());
             self.subscriptions.insert(merged, binding);
         }
+        let scoped = |matcher: &PathMatcher| -> PathMatcher {
+            if normalized_prefix.is_empty() {
+                return matcher.clone();
+            }
+            let matcher = matcher.clone();
+            let scope = normalized_prefix.clone();
+            Rc::new(move |path: &str| {
+                path.strip_prefix(scope.as_str())
+                    .is_some_and(|rest| matcher(rest))
+            })
+        };
+        for (matcher, handler) in &other.other_posts {
+            self.other_posts.push((scoped(matcher), handler.clone()));
+        }
+        for (matcher, handler) in &other.other_streams {
+            self.other_streams.push((scoped(matcher), handler.clone()));
+        }
         Ok(self)
     }
 
