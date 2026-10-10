@@ -219,6 +219,7 @@ fn websocket_server_and_client_typed_api() -> Result<(), ChannelError> {
             })),
             on_connect: None,
             on_disconnect: None,
+            ..ListenOptions::default()
         },
     )?;
     assert_ne!(server.port(), 0);
@@ -228,6 +229,7 @@ fn websocket_server_and_client_typed_api() -> Result<(), ChannelError> {
         ConnectOptions {
             state: None,
             headers: Some("name: header\r\n".to_string()),
+            ..ConnectOptions::default()
         },
     )?;
 

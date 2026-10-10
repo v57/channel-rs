@@ -4,14 +4,31 @@ use serde_json::Value;
 
 use crate::ChannelError;
 
+/// A request id as it appeared on the wire. TS accepts any JSON value as an
+/// id and echoes it back unchanged, so non-integer ids are kept as raw JSON.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum WireId {
+    Int(i64),
+    Raw(String),
+}
+
+impl WireId {
+    pub fn as_int(&self) -> Option<i64> {
+        match self {
+            WireId::Int(value) => Some(*value),
+            WireId::Raw(_) => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ParsedMessage {
-    pub id: Option<i64>,
+    pub id: Option<WireId>,
     pub path: Option<String>,
     pub stream: Option<String>,
     pub sub: Option<String>,
     pub unsub: Option<String>,
-    pub cancel: Option<i64>,
+    pub cancel: Option<WireId>,
     pub topic: Option<String>,
     pub body_json: Option<String>,
     pub context_json: Option<String>,
@@ -22,6 +39,8 @@ pub struct ParsedMessage {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct OutgoingMessage<'a> {
     pub id: Option<i64>,
+    /// Raw JSON id echoed back for requests whose id was not an integer.
+    pub id_raw: Option<&'a str>,
     pub path: Option<&'a str>,
     pub stream: Option<&'a str>,
     pub sub: Option<&'a str>,
@@ -34,100 +53,93 @@ pub struct OutgoingMessage<'a> {
     pub done: Option<bool>,
 }
 
+impl<'a> OutgoingMessage<'a> {
+    /// A response addressed to `id`, whatever its JSON type was.
+    pub fn reply(id: &'a WireId) -> Self {
+        match id {
+            WireId::Int(value) => Self {
+                id: Some(*value),
+                ..Self::default()
+            },
+            WireId::Raw(raw) => Self {
+                id_raw: Some(raw),
+                ..Self::default()
+            },
+        }
+    }
+}
+
+/// Parses one WebSocket text payload. Only invalid JSON is an error (TS
+/// closes the connection for that too); wrong-typed fields are handled the
+/// way the TS reference's truthiness checks handle them.
 pub fn parse_messages(bytes: &[u8]) -> Result<Vec<ParsedMessage>, ChannelError> {
     if bytes.is_empty() {
         return Ok(Vec::new());
     }
 
-    let first = bytes
-        .iter()
-        .copied()
-        .find(|byte| !byte.is_ascii_whitespace())
-        .ok_or_else(|| ChannelError::new("empty payload"))?;
-
-    match first {
-        b'{' => Ok(vec![parse_one(&serde_json::from_slice::<Value>(bytes)?)?]),
-        b'[' => {
-            let value = serde_json::from_slice::<Value>(bytes)?;
-            let Value::Array(items) = value else {
-                return Err(ChannelError::new("invalid json message"));
-            };
-            items.iter().map(parse_one).collect()
-        }
-        _ => Err(ChannelError::new("expected json object or array")),
+    let value = serde_json::from_slice::<Value>(bytes)
+        .map_err(|_| ChannelError::new("invalid json message"))?;
+    match value {
+        Value::Array(items) => Ok(items.iter().filter_map(parse_one).collect()),
+        value => Ok(parse_one(&value).into_iter().collect()),
     }
 }
 
-fn parse_one(value: &Value) -> Result<ParsedMessage, ChannelError> {
+fn is_truthy(value: &Value) -> bool {
+    match value {
+        Value::Null => false,
+        Value::Bool(value) => *value,
+        Value::Number(number) => number.as_f64().is_some_and(|value| value != 0.0),
+        Value::String(text) => !text.is_empty(),
+        Value::Array(_) | Value::Object(_) => true,
+    }
+}
+
+/// A string-valued routing field (`path`, `stream`, `sub`, ...). TS checks
+/// these for truthiness and then uses them as map keys, so a falsy value is
+/// absent and any other non-string value becomes its JSON text (which then
+/// fails the lookup with "api not found" instead of killing the connection).
+fn string_field(object: &serde_json::Map<String, Value>, name: &str) -> Option<String> {
+    let field = object.get(name)?;
+    if !is_truthy(field) {
+        return None;
+    }
+    match field {
+        Value::String(text) => Some(text.clone()),
+        other => Some(other.to_string()),
+    }
+}
+
+fn id_field(object: &serde_json::Map<String, Value>, name: &str) -> Option<WireId> {
+    let field = object.get(name)?;
+    Some(match field.as_i64() {
+        Some(value) => WireId::Int(value),
+        None => WireId::Raw(field.to_string()),
+    })
+}
+
+fn parse_one(value: &Value) -> Option<ParsedMessage> {
     let Value::Object(object) = value else {
-        return Err(ChannelError::new("invalid json message"));
+        return None;
     };
 
-    let mut out = ParsedMessage::default();
-    if let Some(field) = object.get("id") {
-        out.id = Some(field.as_i64().ok_or_else(|| ChannelError::new("invalid id"))?);
-    }
-    if let Some(field) = object.get("path") {
-        out.path = Some(
-            field
-                .as_str()
-                .ok_or_else(|| ChannelError::new("invalid path"))?
-                .to_string(),
-        );
-    }
-    if let Some(field) = object.get("stream") {
-        out.stream = Some(
-            field
-                .as_str()
-                .ok_or_else(|| ChannelError::new("invalid stream"))?
-                .to_string(),
-        );
-    }
-    if let Some(field) = object.get("sub") {
-        out.sub = Some(
-            field
-                .as_str()
-                .ok_or_else(|| ChannelError::new("invalid sub"))?
-                .to_string(),
-        );
-    }
-    if let Some(field) = object.get("unsub") {
-        out.unsub = Some(
-            field
-                .as_str()
-                .ok_or_else(|| ChannelError::new("invalid unsub"))?
-                .to_string(),
-        );
-    }
-    if let Some(field) = object.get("cancel") {
-        out.cancel = Some(field.as_i64().ok_or_else(|| ChannelError::new("invalid cancel"))?);
-    }
-    if let Some(field) = object.get("topic") {
-        out.topic = Some(
-            field
-                .as_str()
-                .ok_or_else(|| ChannelError::new("invalid topic"))?
-                .to_string(),
-        );
-    }
-    if let Some(field) = object.get("body") {
-        out.body_json = Some(serde_json::to_string(field)?);
-    }
-    if let Some(field) = object.get("context") {
-        out.context_json = Some(serde_json::to_string(field)?);
-    }
-    if let Some(field) = object.get("error") {
-        out.error_text = Some(
-            field
-                .as_str()
-                .ok_or_else(|| ChannelError::new("invalid error"))?
-                .to_string(),
-        );
-    }
-    if let Some(field) = object.get("done") {
-        out.done = Some(field.as_bool().ok_or_else(|| ChannelError::new("invalid done"))?);
-    }
-    Ok(out)
+    let error_text = object.get("error").filter(|field| is_truthy(field)).map(|field| match field {
+        Value::String(text) => text.clone(),
+        other => other.to_string(),
+    });
+    Some(ParsedMessage {
+        id: id_field(object, "id"),
+        path: string_field(object, "path"),
+        stream: string_field(object, "stream"),
+        sub: string_field(object, "sub"),
+        unsub: string_field(object, "unsub"),
+        cancel: id_field(object, "cancel"),
+        topic: string_field(object, "topic"),
+        body_json: object.get("body").map(Value::to_string),
+        context_json: object.get("context").map(Value::to_string),
+        error_text,
+        done: object.get("done").map(is_truthy),
+    })
 }
 
 pub fn encode_message(message: OutgoingMessage<'_>) -> Result<Vec<u8>, ChannelError> {
@@ -155,6 +167,9 @@ fn write_object(out: &mut String, message: &OutgoingMessage<'_>) -> Result<(), C
     out.push('{');
     let mut count = 0_usize;
     write_int_field(out, &mut count, "id", message.id);
+    if message.id.is_none() {
+        write_raw_field(out, &mut count, "id", message.id_raw);
+    }
     write_str_field(out, &mut count, "path", message.path)?;
     write_str_field(out, &mut count, "stream", message.stream)?;
     write_str_field(out, &mut count, "sub", message.sub)?;

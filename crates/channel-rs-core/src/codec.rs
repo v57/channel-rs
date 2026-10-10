@@ -1,4 +1,4 @@
-use serde::{Serialize, de::DeserializeOwned};
+use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use crate::{ChannelError, ChannelMessage};
@@ -34,8 +34,4 @@ pub fn deserialize_body<T: DeserializeOwned>(value: &Option<Value>) -> Result<Op
         None | Some(Value::Null) => Ok(None),
         Some(raw) => Ok(Some(serde_json::from_value(raw.clone())?)),
     }
-}
-
-pub fn to_json_value<T: Serialize>(value: &T) -> Result<Value, ChannelError> {
-    Ok(serde_json::to_value(value)?)
 }

@@ -28,25 +28,29 @@ where
     }
 }
 
-pub fn decode_required<T>(json: Option<&str>) -> Result<T, ChannelError>
+/// Decodes a JSON field. A missing field decodes as `null` (so `Option<T>`,
+/// `serde_json::Value` and `()` accept it), matching TS where an absent body
+/// is just `undefined`. Errors name the field (`what`) instead of exposing
+/// serde's internal message to the peer.
+pub fn decode_field<T>(json: Option<&str>, what: &str) -> Result<T, ChannelError>
 where
     T: DeserializeOwned + 'static,
 {
     if is_unit::<T>() {
         return Ok(serde_json::from_str("null")?);
     }
-
-    let raw = json.ok_or_else(|| ChannelError::new("missing json field"))?;
-    Ok(serde_json::from_str(raw)?)
+    serde_json::from_str(json.unwrap_or("null")).map_err(|_| ChannelError::new(format!("invalid {what}")))
 }
 
-pub fn decode_optional<T>(json: Option<&str>) -> Result<Option<T>, ChannelError>
+/// Decodes a request context. TS hands handlers `context ?? {}`, so a
+/// missing context is tried as `{}` first and then as `null`.
+pub fn decode_context<T>(json: Option<&str>) -> Result<T, ChannelError>
 where
     T: DeserializeOwned + 'static,
 {
     match json {
-        None => Ok(None),
-        Some(raw) => Ok(Some(serde_json::from_str(raw)?)),
+        Some(raw) => decode_field(Some(raw), "context"),
+        None => decode_field(Some("{}"), "context").or_else(|_| decode_field(None, "context")),
     }
 }
 

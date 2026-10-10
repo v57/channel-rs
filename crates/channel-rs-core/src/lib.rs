@@ -9,8 +9,9 @@ mod subscription;
 mod wire;
 
 pub use channel::{
-    ApiNode, Channel, Client, ConnectOptions, EventNode, IntoConnectTarget, IntoListenTarget,
-    ListenOptions, Process, Server, post_spec, stream_spec,
+    ApiLeaf, ApiNode, Channel, Client, ConnectOptions, ConnectTarget, DEFAULT_HANDSHAKE_TIMEOUT,
+    DEFAULT_MAX_PAYLOAD, EventNode, IntoConnectTarget, IntoListenTarget, ListenOptions,
+    ListenTarget, Process, Server, post_spec, stream_spec,
 };
 pub use codec::{deserialize_body, deserialize_messages, serialize_message, serialize_messages};
 pub use error::ChannelError;

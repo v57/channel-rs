@@ -20,11 +20,25 @@ struct PublisherSlot {
     publish: Rc<dyn Fn(&str, Option<&str>)>,
 }
 
+type TopicFn<Req> = Rc<dyn Fn(&Req) -> String>;
+type BodyFn<Req, Event> = Rc<dyn Fn(&Req) -> Option<Event>>;
+
 struct SubscriptionInner<Req, Event> {
     prefix: RefCell<String>,
     publishers: RefCell<Vec<PublisherSlot>>,
     next_publisher_id: Cell<usize>,
+    topic_fn: RefCell<Option<TopicFn<Req>>>,
+    body_fn: RefCell<Option<BodyFn<Req, Event>>>,
     _marker: PhantomData<fn(Req, Event)>,
+}
+
+/// TS `publish` drops every falsy body (`if (!body) return`): `null`, `false`,
+/// `0`, `""`.
+fn is_falsy_json(json: &str) -> bool {
+    match json {
+        "null" | "false" | "\"\"" => true,
+        other => other.parse::<f64>().is_ok_and(|value| value == 0.0),
+    }
 }
 
 pub struct Subscription<Req, Event> {
@@ -72,30 +86,98 @@ where
                 prefix: RefCell::new(String::new()),
                 publishers: RefCell::new(Vec::new()),
                 next_publisher_id: Cell::new(1),
+                topic_fn: RefCell::new(None),
+                body_fn: RefCell::new(None),
                 _marker: PhantomData,
             }),
         }
     }
 
+    /// Sets the topic formatter (TS `Subscription.topic`). The default topic
+    /// is the request itself for strings, its JSON text otherwise.
+    pub fn topic<F>(&self, make: F) -> &Self
+    where
+        F: Fn(&Req) -> String + 'static,
+    {
+        *self.inner.topic_fn.borrow_mut() = Some(Rc::new(make));
+        self
+    }
+
+    /// Sets the body formatter (TS `Subscription.body`). It supplies the
+    /// subscribe acknowledgement body and the event body for
+    /// [`Subscription::send_request`] (and for `send` with a `null` event).
+    pub fn body<F>(&self, make: F) -> &Self
+    where
+        F: Fn(&Req) -> Option<Event> + 'static,
+    {
+        *self.inner.body_fn.borrow_mut() = Some(Rc::new(make));
+        self
+    }
+
+    fn local_topic(&self, request: &Req) -> Result<String, ChannelError> {
+        let topic_fn = self.inner.topic_fn.borrow().clone();
+        match topic_fn {
+            Some(make) => Ok(make(request)),
+            None => json_codec::topic_from_value(request),
+        }
+    }
+
+    fn formatted_body(&self, request: &Req) -> Result<Option<String>, ChannelError> {
+        let body_fn = self.inner.body_fn.borrow().clone();
+        match body_fn.and_then(|make| make(request)) {
+            Some(event) => json_codec::encode_optional(&event),
+            None => Ok(None),
+        }
+    }
+
+    /// Publishes `event` to the topic made from `request` (TS
+    /// `send(request, body)`). A `null` event falls back to the body
+    /// formatter, and falsy events are dropped, as in TS.
     pub fn send(&self, request: Req, event: Event) -> Result<(), ChannelError> {
-        let local_topic = json_codec::topic_from_value(&request)?;
+        let topic = self.local_topic(&request)?;
+        let mut body_json = json_codec::encode_optional(&event)?;
+        if body_json.as_deref().is_none_or(|json| json == "null") {
+            body_json = self.formatted_body(&request)?;
+        }
+        self.publish_json(&topic, body_json.as_deref());
+        Ok(())
+    }
+
+    /// Publishes the body formatter's output for `request` (TS
+    /// `send(request)` without a body). Nothing is sent when no body
+    /// formatter is set or it returns `None`.
+    pub fn send_request(&self, request: Req) -> Result<(), ChannelError> {
+        let topic = self.local_topic(&request)?;
+        let body_json = self.formatted_body(&request)?;
+        self.publish_json(&topic, body_json.as_deref());
+        Ok(())
+    }
+
+    /// Publishes `event` to an already formatted local `topic` (TS
+    /// `publish`); the prefix is added here.
+    pub fn publish(&self, topic: &str, event: Event) -> Result<(), ChannelError> {
+        let body_json = json_codec::encode_optional(&event)?;
+        self.publish_json(topic, body_json.as_deref());
+        Ok(())
+    }
+
+    fn publish_json(&self, local_topic: &str, body_json: Option<&str>) {
+        let Some(body_json) = body_json else {
+            return;
+        };
+        if is_falsy_json(body_json) {
+            return;
+        }
         let prefix = self.inner.prefix.borrow().clone();
         let topic = if prefix.is_empty() {
-            local_topic
+            local_topic.to_string()
         } else {
             format!("{prefix}/{local_topic}")
         };
-
-        let body_json = json_codec::encode_optional(&event)?;
-        if json_codec::is_unit::<Event>() && body_json.is_none() {
-            return Ok(());
-        }
-
         let publishers = self.inner.publishers.borrow().clone();
         for publisher in publishers {
-            (publisher.publish)(&topic, body_json.as_deref());
+            (publisher.publish)(&topic, Some(body_json));
         }
-        Ok(())
     }
 
     pub fn set_prefix(&self, prefix: impl Into<String>) {
@@ -107,8 +189,8 @@ where
     }
 
     fn subscribe_impl(&self, body_json: Option<&str>) -> Result<SubscriptionAck, ChannelError> {
-        let request = json_codec::decode_required::<Req>(body_json)?;
-        let local_topic = json_codec::topic_from_value(&request)?;
+        let request = json_codec::decode_field::<Req>(body_json, "body")?;
+        let local_topic = self.local_topic(&request)?;
         let prefix = self.inner.prefix.borrow().clone();
         Ok(SubscriptionAck {
             topic: if prefix.is_empty() {
@@ -116,7 +198,7 @@ where
             } else {
                 format!("{prefix}/{local_topic}")
             },
-            body_json: None,
+            body_json: self.formatted_body(&request)?,
         })
     }
 

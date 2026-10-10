@@ -38,7 +38,7 @@ impl<State: 'static, Resp: DeserializeOwned + 'static> SendingRequest<State, Res
     /// Blocks until this request's response arrives, then returns the
     /// decoded result. Pumps the registered transports while waiting.
     pub fn response(self) -> Result<CallResult<Resp>, ChannelError> {
-        unsafe { self.peer.as_ptr().as_mut().unwrap().resolve_call(self.id) }
+        unsafe { Peer::resolve_call(self.peer.as_ptr(), self.id) }
     }
 
     /// Non-blocking probe: has the response for this request arrived?
@@ -130,7 +130,7 @@ where
             RawStreamEventOwned::Done => Ok(StreamNext::Done),
             RawStreamEventOwned::RemoteErr(error) => Ok(StreamNext::RemoteErr(error)),
             RawStreamEventOwned::Body(body_json) => {
-                let value = json_codec::decode_required::<T>(Some(&body_json))?;
+                let value = json_codec::decode_field::<T>(Some(&body_json), "stream item")?;
                 Ok(StreamNext::Item(value))
             }
         }
@@ -168,7 +168,7 @@ impl<State: 'static> Sender<State> {
         Req: Serialize + 'static,
         Ctx: Serialize + 'static,
     {
-        unsafe { self.peer.as_ptr().as_mut().unwrap().send_typed(path, body, context) }
+        unsafe { Peer::send_typed(self.peer.as_ptr(), path, body, context) }
     }
 
     /// Issues a request without blocking for its response (mirrors TS
@@ -243,13 +243,7 @@ impl<State: 'static> Sender<State> {
         Ctx: Serialize + 'static,
         F: FnMut(Event) + 'static,
     {
-        unsafe {
-            self.peer
-                .as_ptr()
-                .as_mut()
-                .unwrap()
-                .subscribe_typed(path, body, context, on_event)
-        }
+        unsafe { Peer::subscribe_typed(self.peer.as_ptr(), path, body, context, on_event) }
     }
 
     pub fn stop(&self) {
