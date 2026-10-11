@@ -19,35 +19,36 @@ Uses crates from the Rust ecosystem: `tokio` (async runtime), `tokio-tungstenite
 
 # Usage
 
+The API is synchronous: a call blocks and drives the servers and clients of its thread until it completes.
+
 ```rust
-use channel_rs::{
-    Channel, ChannelClientExt, ChannelProcessExt, ChannelServerExt, ClientOptions, ListenOptions,
-};
+use channel_rs::{CallResult, Channel, ChannelError, ConnectOptions, ListenOptions, PostRequest};
 
-type State = std::collections::HashMap<String, serde_json::Value>;
+#[derive(Default)]
+struct State;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), ChannelError> {
     // Server
-    let server = Channel::<State>::new()
-        .post_value("hello", |_| "world")
-        .listen_port(2049, ListenOptions::default())?;
+    let mut server_channel = Channel::<State>::new();
+    server_channel.post_value("hello", |_request: PostRequest<'_, State, (), ()>| Ok("world"))?;
+    let mut server = server_channel.listen(2049_u16, ListenOptions::default())?;
 
-    // Client
-    let client = Channel::<State>::new().connect_port(2049, ClientOptions::default());
-    let value: String = client.send_empty("hello").await?;
-    println!("{value:?}");
+    // Client (calls block and drive this thread's server and client until the reply arrives)
+    let mut client = Channel::<State>::new().connect(2049_u16, ConnectOptions::default())?;
+    if let CallResult::Ok(Some(value)) = client.send::<String, _>("hello", ())? {
+        println!("{value}"); // world
+    }
 
     // Process transport (in-memory)
-    let process_sender = Channel::<State>::new()
-        .post_value("hello", |_| "world")
-        .process();
-
-    let value: String = process_sender.send_empty("hello").await?;
-    println!("{value:?}");
+    let mut process_channel = Channel::<State>::new();
+    process_channel.post_value("hello", |_request: PostRequest<'_, State, (), ()>| Ok("world"))?;
+    let mut process = process_channel.process(State)?;
+    if let CallResult::Ok(Some(value)) = process.send::<String, _>("hello", ())? {
+        println!("{value}"); // world
+    }
 
     client.stop();
-    server.stop().await;
+    server.stop();
     Ok(())
 }
 ```
