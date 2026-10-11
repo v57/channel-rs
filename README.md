@@ -11,6 +11,12 @@ Powerful and lightweight communication built for modern language. Rust implement
 cargo add channel-rs
 ```
 
+# Dependencies
+
+Uses crates from the Rust ecosystem: `tokio` (async runtime), `tokio-tungstenite` and `http` (WebSocket),
+`serde`, `serde_json` and `simd-json` (JSON), plus `futures`, `async-stream`, `dashmap`, `parking_lot`, `bytes`,
+`url`, `sha1`, `base64`, `getrandom`, `thiserror` and `anyhow`.
+
 # Usage
 
 ```rust
