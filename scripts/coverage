@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# In the Hub checkout this runs in its toolchain container (HubTools/hub-run); elsewhere it runs here.
+hub_run="$(dirname "$0")/../../../HubTools/hub-run"
+[[ -n "${HUB_TOOLCHAIN:-}" || ! -x "$hub_run" ]] || exec "$hub_run" bash "$0" "$@"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-export PATH="$HOME/.cargo/bin:/opt/homebrew/opt/rustup/bin:$PATH"
-
 cd "$ROOT"
 mkdir -p coverage
 cargo llvm-cov clean --workspace
