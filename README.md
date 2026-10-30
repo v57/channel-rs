@@ -107,8 +107,8 @@ Certificates: QUIC is always encrypted, so the server needs a PEM certificate an
 
 Each client connection dials from its own UDP socket, never a shared one (Network.framework servers take one
 connection per client address and port). The wire format (one stream per connection, varint-length frames, a hello
-with the headers, a keepalive every 15 s, 30 s idle timeout) is in the TS reference's `channel/docs/quic.md`, which
-also lists the languages that support QUIC. quinn runs on a small tokio runtime of its own (two threads) next to this
+with the headers, a keepalive every 15 s, 30 s idle timeout) is in the TS reference's `channel/docs/quic.md`.
+Languages with QUIC: TypeScript, Go, Swift, C#, Rust, Python, Elixir, Java, Kotlin, C and Zig; Dart, Ruby and PHP stay on WebSocket. quinn runs on a small tokio runtime of its own (two threads) next to this
 port's synchronous pump. Like the WebSocket client, the QUIC client doesn't reconnect.
 
 # Workspace layout
