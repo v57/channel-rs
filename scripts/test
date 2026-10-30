@@ -7,3 +7,7 @@ hub_run="$(dirname "$0")/../../../HubTools/hub-run"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 cargo test --workspace
+# QUIC (the optional `quic` feature): frames, wire rules, trust and interop both ways with the TS reference,
+# whose fixture runs on CHANNEL_TEST_PORT (default 2101; started when nothing listens there)
+cargo test -p channel-rs-core --features quic
+cargo check -p channel-rs --features quic

@@ -13,6 +13,8 @@ pub use channel::{
     DEFAULT_MAX_PAYLOAD, EventNode, IntoConnectTarget, IntoListenTarget, ListenOptions,
     ListenTarget, Process, Server, post_spec, stream_spec,
 };
+#[cfg(feature = "quic")]
+pub use channel::{QUIC_ALPN, QuicListenOptions, QuicOptions, QuicServer, encode_quic_frame};
 pub use codec::{deserialize_body, deserialize_messages, serialize_message, serialize_messages};
 pub use error::ChannelError;
 pub use message::ChannelMessage;

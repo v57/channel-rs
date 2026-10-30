@@ -43,6 +43,8 @@ impl TsServerFixture {
             .join("channel");
         let mut child = Command::new("bun")
             .arg("tests/server.ts")
+            // CHANNEL_TEST_PORT may name the QUIC tests' fixture; this one is 2049
+            .env("CHANNEL_TEST_PORT", "2049")
             .current_dir(workspace)
             .stdin(Stdio::null())
             .stdout(Stdio::null())

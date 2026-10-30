@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+quic = ["channel-rs-core/quic"]
+
 [dependencies]
 anyhow.workspace = true
 channel-rs-core = { path = "../channel-rs-core" }

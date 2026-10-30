@@ -22,6 +22,11 @@ use crate::{
     wire::{OutgoingMessage, ParsedMessage, WireId, encode_message, parse_messages},
 };
 
+#[cfg(feature = "quic")]
+mod quic;
+#[cfg(feature = "quic")]
+pub use quic::{QUIC_ALPN, QuicListenOptions, QuicOptions, QuicServer, encode_quic_frame};
+
 const SLEEP_MICROS: u64 = 100;
 const OPCODE_CONTINUATION: u8 = 0x0;
 const OPCODE_TEXT: u8 = 0x1;
@@ -590,6 +595,14 @@ impl<State: 'static> Channel<State> {
         State: Default,
     {
         let target = target.into_connect_target()?;
+        if target.quic {
+            #[cfg(feature = "quic")]
+            return quic::connect(self, &target, options);
+            #[cfg(not(feature = "quic"))]
+            return Err(ChannelError::new(
+                "quic:// addresses need channel-rs's `quic` feature",
+            ));
+        }
         if target.tls {
             return Err(ChannelError::new("tls is unsupported"));
         }
@@ -635,7 +648,7 @@ impl<State: 'static> Channel<State> {
 
         Ok(Client {
             peer,
-            transport,
+            transport: ClientLink::WebSocket(transport),
             stop_fn: peer_stop::<State>,
         })
     }
@@ -744,6 +757,9 @@ pub struct ConnectOptions<State> {
     /// default, like TS) waits until the reply arrives or the connection
     /// drops; on expiry the call settles as `RemoteErr("timeout")`.
     pub timeout: Option<Duration>,
+    /// Certificate options for `quic://` addresses (`quic` feature).
+    #[cfg(feature = "quic")]
+    pub quic: QuicOptions,
 }
 
 impl<State> Default for ConnectOptions<State> {
@@ -754,6 +770,8 @@ impl<State> Default for ConnectOptions<State> {
             max_payload: DEFAULT_MAX_PAYLOAD,
             handshake_timeout: DEFAULT_HANDSHAKE_TIMEOUT,
             timeout: None,
+            #[cfg(feature = "quic")]
+            quic: QuicOptions::default(),
         }
     }
 }
@@ -895,6 +913,8 @@ enum TransportMode {
     Process,
     WebsocketClient,
     WebsocketServer,
+    #[cfg(feature = "quic")]
+    Quic,
 }
 
 #[derive(Clone, Copy)]
@@ -1714,8 +1734,15 @@ impl<State: 'static> Process<State> {
 
 pub struct Client<State> {
     peer: Box<Peer<State>>,
-    transport: Box<ClientTransport<State>>,
+    transport: ClientLink<State>,
     stop_fn: unsafe fn(*mut ()),
+}
+
+/// The transport under a [`Client`].
+enum ClientLink<State> {
+    WebSocket(Box<ClientTransport<State>>),
+    #[cfg(feature = "quic")]
+    Quic(Box<quic::QuicClientTransport<State>>),
 }
 
 impl<State: 'static> Client<State> {
@@ -1792,7 +1819,11 @@ impl<State: 'static> Client<State> {
     }
 
     pub fn poll(&mut self) -> Result<bool, ChannelError> {
-        self.transport.poll()
+        match &mut self.transport {
+            ClientLink::WebSocket(transport) => transport.poll(),
+            #[cfg(feature = "quic")]
+            ClientLink::Quic(transport) => transport.poll(),
+        }
     }
 
     pub fn stop(&mut self) {
@@ -1848,6 +1879,7 @@ impl IntoConnectTarget for u16 {
             path: "/".to_string(),
             port: self,
             tls: false,
+            quic: false,
         })
     }
 }
@@ -1903,6 +1935,8 @@ pub struct ConnectTarget {
     path: String,
     port: u16,
     tls: bool,
+    /// `quic://host:port`
+    quic: bool,
 }
 
 /// A parsed `listen` address (see [`IntoListenTarget`]).
@@ -1931,6 +1965,26 @@ fn parse_connect_target(text: &str) -> Result<ConnectTarget, ChannelError> {
             path,
             port: url.port().unwrap_or(if url.scheme() == "wss" { 443 } else { 80 }),
             tls: url.scheme() == "wss",
+            quic: false,
+        });
+    }
+    if let Some(rest) = text.strip_prefix("quic://") {
+        let (host, port) = rest
+            .split('/')
+            .next()
+            .and_then(|authority| authority.rsplit_once(':'))
+            .ok_or_else(|| ChannelError::new("a quic:// address needs a port"))?;
+        if host.is_empty() {
+            return Err(ChannelError::new("invalid address"));
+        }
+        return Ok(ConnectTarget {
+            host: host.trim_start_matches('[').trim_end_matches(']').to_string(),
+            path: "/".to_string(),
+            port: port
+                .parse()
+                .map_err(|error| ChannelError::new(format!("invalid port: {error}")))?,
+            tls: false,
+            quic: true,
         });
     }
 
@@ -1944,6 +1998,7 @@ fn parse_connect_target(text: &str) -> Result<ConnectTarget, ChannelError> {
             .parse()
             .map_err(|error| ChannelError::new(format!("invalid port: {error}")))?,
         tls: false,
+        quic: false,
     })
 }
 

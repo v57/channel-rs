@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+# QUIC transport (experimental): quic:// addresses for connect, and listen_quic
+quic = ["channel-rs-core/quic"]
+
 [dependencies]
 channel-rs-core = { path = "../channel-rs-core" }
 channel-rs-client = { path = "../channel-rs-client" }

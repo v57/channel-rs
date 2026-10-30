@@ -3,5 +3,8 @@ pub use channel_rs_core::{
     StreamNext, SubscribeResult, SubscriptionHandle, Values,
 };
 
+#[cfg(feature = "quic")]
+pub use channel_rs_core::QuicOptions;
+
 pub type ClientSender<State> = Sender<State>;
 pub type WebSocketClient<State> = Client<State>;

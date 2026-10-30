@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+# QUIC transport (experimental): quic:// clients and listen_quic, on quinn + rustls (ring)
+quic = ["dep:quinn", "dep:rustls", "dep:rustls-native-certs", "dep:ring"]
+
 [dependencies]
 async-stream.workspace = true
 base64.workspace = true
@@ -20,3 +24,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
 url.workspace = true
+quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-ring"], optional = true }
+ring = { version = "0.17", optional = true }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"], optional = true }
+rustls-native-certs = { version = "0.8", optional = true }
